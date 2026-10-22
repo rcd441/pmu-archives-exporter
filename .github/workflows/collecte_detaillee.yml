@@ -1,0 +1,80 @@
+name: Collecte PMU détaillée V27
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "backfill = archives du 8 au 30 septembre ; daily = la veille"
+        type: choice
+        required: true
+        default: backfill
+        options:
+          - backfill
+          - daily
+  schedule:
+    - cron: '25 5 * * *'  # Chaque jour en UTC, courses de la veille
+
+permissions:
+  contents: read
+
+jobs:
+  septembre:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'backfill'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        lot:
+          - {id: 1, debut: '2026-09-08', fin: '2026-09-12'}
+          - {id: 2, debut: '2026-09-13', fin: '2026-09-17'}
+          - {id: 3, debut: '2026-09-18', fin: '2026-09-22'}
+          - {id: 4, debut: '2026-09-23', fin: '2026-09-27'}
+          - {id: 5, debut: '2026-09-28', fin: '2026-09-30'}
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Collecter un lot de septembre
+        run: >-
+          python collecte_detaillee.py
+          --debut '${{ matrix.lot.debut }}'
+          --fin '${{ matrix.lot.fin }}'
+          --sortie 'archives/lot-${{ matrix.lot.id }}'
+      - name: Sauvegarder les résultats et erreurs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmu-v27-septembre-lot-${{ matrix.lot.id }}
+          path: archives/lot-${{ matrix.lot.id }}/
+          retention-days: 7
+          if-no-files-found: warn
+
+  quotidien:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'daily')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Collecter la veille
+        shell: bash
+        run: |
+          JOUR=$(date -u -d 'yesterday' +%Y-%m-%d)
+          python collecte_detaillee.py --debut "$JOUR" --fin "$JOUR" --sortie archives/quotidien
+      - name: Sauvegarder les résultats et erreurs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pmu-v27-quotidien-${{ github.run_id }}
+          path: archives/quotidien/
+          retention-days: 7
+          if-no-files-found: warn
